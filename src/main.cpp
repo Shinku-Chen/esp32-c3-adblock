@@ -583,9 +583,18 @@ static void handleWifiSave() {
 }
 // Never returns — blocks in the portal loop until creds are saved (then reboots).
 static void startConfigPortal() {
-  int n = WiFi.scanNetworks();                 // scan while still in STA mode (no APSTA)
-  Serial.printf("[setup] scan: %d networks\n", n);
-  if (n <= 0) { delay(600); n = WiFi.scanNetworks(); Serial.printf("[setup] rescan: %d networks\n", n); }
+  // Bring the radio up before the first scan. An unconfigured device gets here
+  // straight from connectWiFi() without any WiFi call, and the first scan right
+  // after boot can come back empty - which left the network picker with no
+  // entries at all (the "dropdown does nothing" report). Retry a few times.
+  WiFi.mode(WIFI_STA);
+  delay(200);
+  int n = 0;
+  for (int attempt = 1; attempt <= 3 && n <= 0; attempt++) {
+    if (attempt > 1) delay(700);
+    n = WiFi.scanNetworks();
+    Serial.printf("[setup] scan %d/3: %d networks\n", attempt, n);
+  }
   portalOpts = "<option value=''>-- pick your network --</option>";
   for (int i = 0; i < n && i < 15; i++) {
     const String s = WiFi.SSID(i);

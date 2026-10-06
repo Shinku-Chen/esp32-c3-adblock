@@ -17,3 +17,7 @@ src/secrets.h
 
 # Backups / scratch
 *.bak
+
+# Publishing artifacts (merged image, cover, copy) kept locally
+# for the community submission; not part of the firmware source.
+dist/

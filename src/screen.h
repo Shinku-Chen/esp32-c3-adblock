@@ -5,7 +5,10 @@
 // On every other board these functions are no-ops.
 #pragma once
 
+#include <stdint.h>
+
 void screen_init(void);                             // "starting" splash, drawn at boot
 void screen_connecting(const char *ssid);           // trying the saved network
 void screen_setup(const char *ap, const char *ip);  // captive-portal hotspot is up
 void screen_online(const char *ip);                 // joined the network
+void screen_stats(uint32_t blocked, uint32_t allowed, int devices);  // live counters, 1 Hz

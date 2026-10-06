@@ -192,6 +192,18 @@ void lcd_backlight(uint8_t percent) {
     ledc_update_duty(AI_BL_LEDC_MODE, AI_BL_LEDC_CHANNEL);
 }
 
+// Blank the whole panel for idle; the caller repaints after waking it up.
+void lcd_power(bool on) {
+    if (!s_ready) return;
+    if (on) {
+        esp_lcd_panel_disp_on_off(s_panel, true);
+        lcd_backlight(70);
+    } else {
+        lcd_backlight(0);
+        esp_lcd_panel_disp_on_off(s_panel, false);
+    }
+}
+
 static void push(int x, int y, int w, int h) {
     // The panel takes RGB565 high byte first; the IDF SPI panel IO sends the
     // buffer byte for byte, so the scratch strip holds byte-swapped pixels.

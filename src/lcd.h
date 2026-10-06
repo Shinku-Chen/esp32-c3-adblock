@@ -15,6 +15,7 @@
 void lcd_init(void);
 bool lcd_ready(void);
 void lcd_backlight(uint8_t percent);           // 0..100
+void lcd_power(bool on);                       // backlight + panel display
 void lcd_fill(uint16_t color);
 void lcd_fill_rect(int x, int y, int w, int h, uint16_t color);
 void lcd_text(int x, int y, const char *s, uint8_t scale, uint16_t fg, uint16_t bg);

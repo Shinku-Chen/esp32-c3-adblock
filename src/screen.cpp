@@ -22,6 +22,10 @@
 #define C_WHITE  0xFFFF
 
 #define STATS_PERIOD_MS 1000
+#define SCREEN_IDLE_MS  300000   // blank the panel after 5 quiet minutes
+#define KEY_POLL_MS     50
+#define KEY_ADC_PIN     0        // the three front keys share this ADC ladder
+#define KEY_PRESSED_MV  1900     // any key sits below this; released is near 3.3 V
 // Rows of the live stats block: y, erase height, text scale.
 #define ROW_BLOCKED_Y   142
 #define ROW_BLOCKED_H   24
@@ -31,9 +35,10 @@
 #define ROW_DEVICES_H   16
 #define ROW_RSSI_Y      252
 #define ROW_TEMP_Y      266
+#define ROW_UPTIME_Y    284
 #define ROW_SMALL_H     8
 #define ROW_X           12
-#define ROW_VAL_X       52
+#define ROW_VAL_X       68
 
 enum ScreenState : uint8_t { S_NONE = 0, S_BOOT, S_CONNECTING, S_SETUP, S_ONLINE };
 
@@ -48,6 +53,10 @@ static bool s_have_stats;
 static uint32_t s_stats_ms;
 static char s_blocked_s[16], s_allowed_s[16], s_devices_s[12];
 static char s_rssi_s[12], s_temp_s[12];
+static char s_uptime_s[20];
+static bool s_on = true;
+static uint32_t s_active_ms;
+static uint32_t s_key_ms;
 
 static int centerX(const char *s, uint8_t scale) {
     int x = (LCD_W - (int)strlen(s) * 8 * scale) / 2;
@@ -69,6 +78,12 @@ static void fmtNum(uint32_t v, char *out, size_t n) {
         out[o++] = tmp[i];
     }
     out[o] = 0;
+}
+
+// "1d 04h 12m"
+static void fmtUptime(uint32_t sec, char *out, size_t n) {
+    uint32_t d = sec / 86400, h = (sec % 86400) / 3600, m = (sec % 3600) / 60;
+    snprintf(out, n, "%lud %luh %lum", (unsigned long)d, (unsigned long)h, (unsigned long)m);
 }
 
 static void header(void) {
@@ -115,6 +130,13 @@ static void paint_stats(bool force) {
         lcd_fill_rect(ROW_VAL_X, ROW_TEMP_Y, LCD_W - ROW_VAL_X, ROW_SMALL_H, C_BG);
         lcd_text(ROW_VAL_X, ROW_TEMP_Y, t, 1, C_TEXT, C_BG);
         snprintf(s_temp_s, sizeof(s_temp_s), "%s", t);
+    }
+    char u[20];
+    fmtUptime(millis() / 1000, u, sizeof(u));
+    if (force || strcmp(u, s_uptime_s) != 0) {
+        lcd_fill_rect(ROW_VAL_X, ROW_UPTIME_Y, LCD_W - ROW_VAL_X, ROW_SMALL_H, C_BG);
+        lcd_text(ROW_VAL_X, ROW_UPTIME_Y, u, 1, C_TEXT, C_BG);
+        snprintf(s_uptime_s, sizeof(s_uptime_s), "%s", u);
     }
 }
 
@@ -173,9 +195,10 @@ static void draw(void) {
             lcd_text(ROW_X, 212, "DEVICES", 1, C_DIM, C_BG);
             lcd_text(ROW_X, ROW_RSSI_Y, "RSSI", 1, C_DIM, C_BG);
             lcd_text(ROW_X, ROW_TEMP_Y, "TEMP", 1, C_DIM, C_BG);
+            lcd_text(ROW_X, ROW_UPTIME_Y, "UPTIME", 1, C_DIM, C_BG);
             // fall through to the values below
             s_blocked_s[0] = s_allowed_s[0] = s_devices_s[0] = 0;
-            s_rssi_s[0] = s_temp_s[0] = 0;
+            s_rssi_s[0] = s_temp_s[0] = s_uptime_s[0] = 0;
             if (s_have_stats) paint_stats(true);
             break;
         }
@@ -183,6 +206,19 @@ static void draw(void) {
         default:
             break;
     }
+}
+
+static bool anyKeyPressed(void) {
+    return analogReadMilliVolts(KEY_ADC_PIN) < KEY_PRESSED_MV;
+}
+
+// Blank the panel after the idle timeout and repaint the current page on wake.
+static void screenSetOn(bool on) {
+    if (on == s_on) return;
+    s_on = on;
+    s_active_ms = millis();
+    lcd_power(on);
+    if (on) draw();   // GRAM survives display-off, but a repaint is cheap and safe
 }
 
 static void show(ScreenState state, const char *a, const char *b) {
@@ -193,12 +229,16 @@ static void show(ScreenState state, const char *a, const char *b) {
     s_state = state;
     snprintf(s_ssid, sizeof(s_ssid), "%s", na);
     snprintf(s_ip, sizeof(s_ip), "%s", nb);
+    s_on = true;
+    s_active_ms = millis();
+    lcd_power(true);
     draw();
     Serial.printf("[screen] state=%d ssid=\"%s\" ip=\"%s\"\n", (int)state, s_ssid, s_ip);
 }
 
 void screen_init(void) {
     lcd_init();
+    analogSetPinAttenuation(KEY_ADC_PIN, ADC_11db);   // the key ladder spans 0..3.3 V
     show(S_BOOT, "", "");
 }
 
@@ -214,8 +254,25 @@ void screen_stats(uint32_t blocked, uint32_t allowed, int devices, int rssi, int
     s_rssi = rssi;
     s_temp = temp_c;
     s_have_stats = true;
-    if (s_state != S_ONLINE) return;
+
     uint32_t now = millis();
+    if (now - s_key_ms >= KEY_POLL_MS) {
+        s_key_ms = now;
+        const bool pressed = anyKeyPressed();
+        if (pressed) {
+            s_active_ms = now;          // any key also counts as activity
+            if (!s_on) screenSetOn(true);   // ...and lights the panel back up
+        }
+    }
+
+    if (!s_on) return;                    // dark: nothing to repaint yet
+    if (now - s_active_ms >= SCREEN_IDLE_MS) {
+        Serial.printf("[screen] idle %lu s -> panel off\n", (unsigned long)(SCREEN_IDLE_MS / 1000));
+        screenSetOn(false);
+        return;
+    }
+
+    if (s_state != S_ONLINE) return;
     if (now - s_stats_ms < STATS_PERIOD_MS) return;
     s_stats_ms = now;
     paint_stats(false);

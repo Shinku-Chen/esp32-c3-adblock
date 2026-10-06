@@ -29,7 +29,11 @@
 #define ROW_ALLOWED_H   16
 #define ROW_DEVICES_Y   224
 #define ROW_DEVICES_H   16
+#define ROW_RSSI_Y      252
+#define ROW_TEMP_Y      266
+#define ROW_SMALL_H     8
 #define ROW_X           12
+#define ROW_VAL_X       52
 
 enum ScreenState : uint8_t { S_NONE = 0, S_BOOT, S_CONNECTING, S_SETUP, S_ONLINE };
 
@@ -39,9 +43,11 @@ static char s_ip[24];
 
 static uint32_t s_blocked, s_allowed;
 static int s_devices;
+static int s_rssi, s_temp;
 static bool s_have_stats;
 static uint32_t s_stats_ms;
 static char s_blocked_s[16], s_allowed_s[16], s_devices_s[12];
+static char s_rssi_s[12], s_temp_s[12];
 
 static int centerX(const char *s, uint8_t scale) {
     int x = (LCD_W - (int)strlen(s) * 8 * scale) / 2;
@@ -78,10 +84,12 @@ static void footer(void) {
 // Paint the three live values; only changed fields are rewritten, so the 1 Hz
 // refresh never flickers.
 static void paint_stats(bool force) {
-    char b[16], a[12], d[8];
+    char b[16], a[12], d[8], r[16], t[12];
     fmtNum(s_blocked, b, sizeof(b));
     fmtNum((uint32_t)s_allowed, a, sizeof(a));
     snprintf(d, sizeof(d), "%d", s_devices);
+    snprintf(r, sizeof(r), "%d dBm", s_rssi);
+    snprintf(t, sizeof(t), "%d C", s_temp);
 
     if (force || strcmp(b, s_blocked_s) != 0) {
         lcd_fill_rect(ROW_X, ROW_BLOCKED_Y, LCD_W - ROW_X, ROW_BLOCKED_H, C_BG);
@@ -97,6 +105,16 @@ static void paint_stats(bool force) {
         lcd_fill_rect(ROW_X, ROW_DEVICES_Y, LCD_W - ROW_X, ROW_DEVICES_H, C_BG);
         lcd_text(ROW_X, ROW_DEVICES_Y, d, 2, C_TEXT, C_BG);
         snprintf(s_devices_s, sizeof(s_devices_s), "%s", d);
+    }
+    if (force || strcmp(r, s_rssi_s) != 0) {
+        lcd_fill_rect(ROW_VAL_X, ROW_RSSI_Y, LCD_W - ROW_VAL_X, ROW_SMALL_H, C_BG);
+        lcd_text(ROW_VAL_X, ROW_RSSI_Y, r, 1, C_TEXT, C_BG);
+        snprintf(s_rssi_s, sizeof(s_rssi_s), "%s", r);
+    }
+    if (force || strcmp(t, s_temp_s) != 0) {
+        lcd_fill_rect(ROW_VAL_X, ROW_TEMP_Y, LCD_W - ROW_VAL_X, ROW_SMALL_H, C_BG);
+        lcd_text(ROW_VAL_X, ROW_TEMP_Y, t, 1, C_TEXT, C_BG);
+        snprintf(s_temp_s, sizeof(s_temp_s), "%s", t);
     }
 }
 
@@ -153,8 +171,11 @@ static void draw(void) {
             lcd_text(ROW_X, 130, "BLOCKED", 1, C_DIM, C_BG);
             lcd_text(ROW_X, 176, "ALLOWED", 1, C_DIM, C_BG);
             lcd_text(ROW_X, 212, "DEVICES", 1, C_DIM, C_BG);
+            lcd_text(ROW_X, ROW_RSSI_Y, "RSSI", 1, C_DIM, C_BG);
+            lcd_text(ROW_X, ROW_TEMP_Y, "TEMP", 1, C_DIM, C_BG);
             // fall through to the values below
             s_blocked_s[0] = s_allowed_s[0] = s_devices_s[0] = 0;
+            s_rssi_s[0] = s_temp_s[0] = 0;
             if (s_have_stats) paint_stats(true);
             break;
         }
@@ -185,11 +206,13 @@ void screen_connecting(const char *ssid) { show(S_CONNECTING, ssid, ""); }
 void screen_setup(const char *ap, const char *ip) { show(S_SETUP, ap, ip); }
 void screen_online(const char *ip) { show(S_ONLINE, "", ip); }
 
-void screen_stats(uint32_t blocked, uint32_t allowed, int devices) {
+void screen_stats(uint32_t blocked, uint32_t allowed, int devices, int rssi, int temp_c) {
     if (!lcd_ready()) return;
     s_blocked = blocked;
     s_allowed = allowed;
     s_devices = devices;
+    s_rssi = rssi;
+    s_temp = temp_c;
     s_have_stats = true;
     if (s_state != S_ONLINE) return;
     uint32_t now = millis();
@@ -204,6 +227,6 @@ void screen_init(void) {}
 void screen_connecting(const char *) {}
 void screen_setup(const char *, const char *) {}
 void screen_online(const char *) {}
-void screen_stats(uint32_t, uint32_t, int) {}
+void screen_stats(uint32_t, uint32_t, int, int, int) {}
 
 #endif  // ADBLOCK_AIPASSPORT

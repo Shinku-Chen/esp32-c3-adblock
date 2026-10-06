@@ -33,9 +33,10 @@
 #define ROW_ALLOWED_H   16
 #define ROW_DEVICES_Y   224
 #define ROW_DEVICES_H   16
-#define ROW_RSSI_Y      252
-#define ROW_TEMP_Y      266
-#define ROW_UPTIME_Y    284
+#define ROW_RSSI_Y      248
+#define ROW_TEMP_Y      262
+#define ROW_UPTIME_Y    276
+#define ROW_DNS_Y       290
 #define ROW_SMALL_H     8
 #define ROW_X           12
 #define ROW_VAL_X       68
@@ -54,6 +55,8 @@ static uint32_t s_stats_ms;
 static char s_blocked_s[16], s_allowed_s[16], s_devices_s[12];
 static char s_rssi_s[12], s_temp_s[12];
 static char s_uptime_s[20];
+static char s_dns[24];
+static char s_dns_s[24];
 static bool s_on = true;
 static uint32_t s_active_ms;
 static uint32_t s_key_ms;
@@ -138,6 +141,11 @@ static void paint_stats(bool force) {
         lcd_text(ROW_VAL_X, ROW_UPTIME_Y, u, 1, C_TEXT, C_BG);
         snprintf(s_uptime_s, sizeof(s_uptime_s), "%s", u);
     }
+    if (force || strcmp(s_dns, s_dns_s) != 0) {
+        lcd_fill_rect(ROW_VAL_X, ROW_DNS_Y, LCD_W - ROW_VAL_X, ROW_SMALL_H, C_BG);
+        lcd_text(ROW_VAL_X, ROW_DNS_Y, s_dns, 1, C_TEXT, C_BG);
+        snprintf(s_dns_s, sizeof(s_dns_s), "%s", s_dns);
+    }
 }
 
 static void draw(void) {
@@ -196,9 +204,11 @@ static void draw(void) {
             lcd_text(ROW_X, ROW_RSSI_Y, "RSSI", 1, C_DIM, C_BG);
             lcd_text(ROW_X, ROW_TEMP_Y, "TEMP", 1, C_DIM, C_BG);
             lcd_text(ROW_X, ROW_UPTIME_Y, "UPTIME", 1, C_DIM, C_BG);
+            lcd_text(ROW_X, ROW_DNS_Y, "DNS", 1, C_DIM, C_BG);
             // fall through to the values below
             s_blocked_s[0] = s_allowed_s[0] = s_devices_s[0] = 0;
             s_rssi_s[0] = s_temp_s[0] = s_uptime_s[0] = 0;
+            s_dns_s[0] = 0;
             if (s_have_stats) paint_stats(true);
             break;
         }
@@ -255,13 +265,15 @@ void screen_connecting(const char *ssid) { show(S_CONNECTING, ssid, ""); }
 void screen_setup(const char *ap, const char *ip) { show(S_SETUP, ap, ip); }
 void screen_online(const char *ip) { show(S_ONLINE, "", ip); }
 
-void screen_stats(uint32_t blocked, uint32_t allowed, int devices, int rssi, int temp_c) {
+void screen_stats(uint32_t blocked, uint32_t allowed, int devices, int rssi, int temp_c,
+                  const char *dns) {
     if (!lcd_ready()) return;
     s_blocked = blocked;
     s_allowed = allowed;
     s_devices = devices;
     s_rssi = rssi;
     s_temp = temp_c;
+    snprintf(s_dns, sizeof(s_dns), "%s", dns ? dns : "");
     s_have_stats = true;
 
     uint32_t now = millis();
@@ -293,6 +305,6 @@ void screen_init(void) {}
 void screen_connecting(const char *) {}
 void screen_setup(const char *, const char *) {}
 void screen_online(const char *) {}
-void screen_stats(uint32_t, uint32_t, int, int, int) {}
+void screen_stats(uint32_t, uint32_t, int, int, int, const char *) {}
 
 #endif  // ADBLOCK_AIPASSPORT

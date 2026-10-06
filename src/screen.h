@@ -11,5 +11,5 @@ void screen_init(void);                             // "starting" splash, drawn 
 void screen_connecting(const char *ssid);           // trying the saved network
 void screen_setup(const char *ap, const char *ip);  // captive-portal hotspot is up
 void screen_online(const char *ip);                 // joined the network
-void screen_stats(uint32_t blocked, uint32_t allowed, int devices, int rssi, int temp_c);
-                                                                        // live counters, 1 Hz
+void screen_stats(uint32_t blocked, uint32_t allowed, int devices, int rssi, int temp_c,
+                  const char *dns);   // live counters, 1 Hz

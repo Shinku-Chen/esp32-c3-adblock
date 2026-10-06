@@ -675,7 +675,8 @@ void loop() {
   web.handleClient();
   bool busy = handleDns();
   screen_stats(totalBlocked, totalAllowed, numClients,
-               WiFi.RSSI(), (int)lroundf(temperatureRead()));   // throttled to 1 Hz inside
+               WiFi.RSSI(), (int)lroundf(temperatureRead()),
+               upstreamDns.toString().c_str());   // throttled to 1 Hz inside
   if (!blockingOn && resumeAt && (int32_t)(millis() - resumeAt) >= 0) { blockingOn = true; resumeAt = 0; }
   if (updateUrl.length()) {               // periodic remote blocklist auto-update
     uint32_t now = millis();

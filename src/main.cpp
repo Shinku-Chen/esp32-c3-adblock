@@ -337,6 +337,18 @@ static bool handleDns() {
 // ---------- web ----------
 static String macStr(const uint8_t* m) { char s[18]; snprintf(s, sizeof(s), "%02x:%02x:%02x:%02x:%02x:%02x", m[0],m[1],m[2],m[3],m[4],m[5]); return String(s); }
 static String jesc(const String& s) { String o; for (char ch : s) { if (ch == '"' || ch == '\\') o += '\\'; o += ch; } return o; }
+// HTML escaping for values copied into the setup page (SSIDs come from the air).
+static String hesc(const String& s) {
+  String o; for (char ch : s) {
+    if (ch == '&') o += "&amp;";
+    else if (ch == '<') o += "&lt;";
+    else if (ch == '>') o += "&gt;";
+    else if (ch == '"') o += "&quot;";
+    else if (ch == '\'') o += "&#39;";
+    else o += ch;
+  }
+  return o;
+}
 
 #include "page.h"   // dashboard HTML (PROGMEM) — see issue #6
 
@@ -548,15 +560,20 @@ static void handlePortalRoot() {
     "<h2>&#128737; C3 AdBlock &mdash; WiFi setup</h2>"
     "<p style='color:#8b949e'>Pick your network and enter its password. The device restarts and joins it.</p>"
     "<form method=POST action=/wifisave>"
-    "<input list=nets name=s placeholder='WiFi name' required style='width:100%;box-sizing:border-box;padding:11px;margin:6px 0;border-radius:6px;border:1px solid #30363d;background:#161b22;color:#c9d1d9'>"
-    "<datalist id=nets>" + portalOpts + "</datalist>"
+    // A <select> works on every phone browser; the datalist this used to be is
+    // a no-op in several in-app browsers, and its little arrow does nothing.
+    // Typing the name stays possible for hidden networks.
+    "<select name=s style='width:100%;box-sizing:border-box;padding:11px;margin:6px 0;border-radius:6px;border:1px solid #30363d;background:#161b22;color:#c9d1d9'>" + portalOpts + "</select>"
+    "<input name=s2 placeholder='or type the WiFi name' style='width:100%;box-sizing:border-box;padding:11px;margin:6px 0;border-radius:6px;border:1px solid #30363d;background:#161b22;color:#c9d1d9'>"
     "<input name=p type=password placeholder='Password' style='width:100%;box-sizing:border-box;padding:11px;margin:6px 0;border-radius:6px;border:1px solid #30363d;background:#161b22;color:#c9d1d9'>"
     "<button style='width:100%;padding:12px;margin-top:8px;border-radius:6px;border:0;background:#3fb950;color:#000;font-weight:600;cursor:pointer'>Connect</button>"
     "</form></body>";
   web.send(200, "text/html", html);
 }
 static void handleWifiSave() {
-  String ss = web.arg("s"), pw = web.arg("p");
+  String ss = web.arg("s2"); ss.trim();          // typed name wins
+  if (!ss.length()) ss = web.arg("s");           // ...otherwise the picked one
+  String pw = web.arg("p");
   if (!ss.length()) { web.send(400, "text/plain", "missing WiFi name"); return; }
   prefs.begin("wifi", false); prefs.putString("ssid", ss); prefs.putString("pass", pw); prefs.end();
   web.send(200, "text/html", "<!doctype html><meta charset=utf-8><body style='font:16px system-ui;text-align:center;margin-top:60px'>"
@@ -567,8 +584,13 @@ static void handleWifiSave() {
 // Never returns — blocks in the portal loop until creds are saved (then reboots).
 static void startConfigPortal() {
   int n = WiFi.scanNetworks();                 // scan while still in STA mode (no APSTA)
-  portalOpts = "";
-  for (int i = 0; i < n && i < 15; i++) portalOpts += "<option value='" + jesc(WiFi.SSID(i)) + "'>";
+  Serial.printf("[setup] scan: %d networks\n", n);
+  if (n <= 0) { delay(600); n = WiFi.scanNetworks(); Serial.printf("[setup] rescan: %d networks\n", n); }
+  portalOpts = "<option value=''>-- pick your network --</option>";
+  for (int i = 0; i < n && i < 15; i++) {
+    const String s = WiFi.SSID(i);
+    portalOpts += "<option value='" + hesc(s) + "'>" + hesc(s) + "</option>";
+  }
   uint8_t mac[6]; WiFi.macAddress(mac);
   char ap[24]; snprintf(ap, sizeof(ap), "C3-AdBlock-%02X%02X", mac[4], mac[5]);
   WiFi.mode(WIFI_AP); WiFi.softAP(ap);

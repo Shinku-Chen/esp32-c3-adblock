@@ -149,7 +149,6 @@ static void draw(void) {
             snprintf(line, sizeof(line), "IP %s", ip);
             lcd_text(centerX(line, 1), 82, line, 1, C_TEXT, C_BG);
             lcd_text(centerX("c3adblock.local", 1), 96, "c3adblock.local", 1, C_DIM, C_BG);
-            lcd_fill_rect(16, 118, LCD_W - 32, 1, C_DIM);
 
             lcd_text(ROW_X, 130, "BLOCKED", 1, C_DIM, C_BG);
             lcd_text(ROW_X, 176, "ALLOWED", 1, C_DIM, C_BG);

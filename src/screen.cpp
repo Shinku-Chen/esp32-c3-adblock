@@ -115,6 +115,7 @@ static void show(ScreenState state, const char *a, const char *b) {
     snprintf(s_ssid, sizeof(s_ssid), "%s", na);
     snprintf(s_ip, sizeof(s_ip), "%s", nb);
     draw();
+    Serial.printf("[screen] state=%d ssid=\"%s\" ip=\"%s\"\n", (int)state, s_ssid, s_ip);
 }
 
 void screen_init(void) {

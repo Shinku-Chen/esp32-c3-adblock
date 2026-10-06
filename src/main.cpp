@@ -563,15 +563,22 @@ void setup() {
   Serial.printf("custom: %d, banned: %d\n", numCustom, numBanned);
 
   // Hold BOOT at power-on to wipe saved WiFi and force the setup portal.
-#if CONFIG_IDF_TARGET_ESP32C3
-  const int BOOT_PIN = 9;     // C3 BOOT button
+#ifdef ADBLOCK_AIPASSPORT
+  // Nothing to do here: this board has no BOOT button, and on it GPIO9 is the
+  // panel's SPI data line - pulling that pin into input mode would silently
+  // freeze the screen. Wi-Fi recovery is unchanged: a device that cannot reach
+  // its saved network reopens the setup hotspot by itself.
 #else
+  #if CONFIG_IDF_TARGET_ESP32C3
+  const int BOOT_PIN = 9;     // C3 BOOT button
+  #else
   const int BOOT_PIN = 0;     // classic ESP32 BOOT button (GPIO9 is a flash pin there)
-#endif
+  #endif
   pinMode(BOOT_PIN, INPUT_PULLUP);
   if (digitalRead(BOOT_PIN) == LOW) { delay(60);
     if (digitalRead(BOOT_PIN) == LOW) { prefs.begin("wifi", false); prefs.clear(); prefs.end();
       Serial.println("[setup] BOOT held -> cleared saved WiFi"); } }
+#endif
 
   if (!connectWiFi()) startConfigPortal();   // portal blocks + reboots on save; returns only when connected
   Serial.printf("WiFi up: %s\n", WiFi.localIP().toString().c_str());

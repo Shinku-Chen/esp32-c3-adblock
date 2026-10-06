@@ -28,7 +28,9 @@
 #ifndef UPSTREAM_PORT
 #define UPSTREAM_PORT 53
 #endif
-static const IPAddress UPSTREAM(UPSTREAM_IP);
+static const IPAddress UPSTREAM(UPSTREAM_IP);   // compile-time fallback
+static IPAddress upstreamDns;          // runtime upstream: gateway by default
+static bool      upstreamCustom = false;
 static const uint16_t DNS_PORT = 53;
 static const char* BLOCKLIST_PATH = "/blocklist.bin";
 static const int HASH_BYTES = 5;
@@ -224,6 +226,30 @@ static Dev* getClient(uint32_t ip) {
   return nullptr;
 }
 
+// ---------- upstream resolver ----------
+// Allowed lookups are forwarded here. Default: the DHCP gateway (the router's
+// own resolver), overridable from the dashboard and persisted on the device.
+static void upstreamUseGateway() {
+  IPAddress gw = WiFi.gatewayIP();
+  upstreamDns = (gw != IPAddress(0, 0, 0, 0)) ? gw : UPSTREAM;
+}
+static void upstreamLoad() {
+  File f = LittleFS.open("/upstream.cfg", "r");
+  if (f) {
+    String l = f.readStringUntil('\n'); l.trim();
+    IPAddress ip;
+    if (l.length() && ip.fromString(l)) { upstreamDns = ip; upstreamCustom = true; }
+    f.close();
+  }
+  if (!upstreamCustom) upstreamUseGateway();
+}
+static void upstreamSave() {
+  File f = LittleFS.open("/upstream.cfg", "w");
+  if (!f) return;
+  f.println(upstreamDns.toString());
+  f.close();
+}
+
 // ---------- DNS ----------
 static size_t parseQuery(const uint8_t* pkt, int len, char* out, uint16_t* qtype, int* qend) {
   if (len < 13) return 0; int i = 12; size_t o = 0;
@@ -254,12 +280,12 @@ static int forwardUpstream(int qlen, int qend) {
   const bool haveQ = ql > 0 && ql <= (int)sizeof(q) && qend <= qlen;
   if (haveQ) memcpy(q, buf + 12, ql);
   buf[0] = wid >> 8; buf[1] = wid & 0xFF;
-  upstreamCli.beginPacket(UPSTREAM, UPSTREAM_PORT); upstreamCli.write(buf, qlen); upstreamCli.endPacket();
+  upstreamCli.beginPacket(upstreamDns, UPSTREAM_PORT); upstreamCli.write(buf, qlen); upstreamCli.endPacket();
   const uint32_t t0 = millis();
   while (millis() - t0 < 1000) {                         // deadline, not a retry count
     int sz = upstreamCli.parsePacket();
     if (sz <= 0) { delay(1); continue; }
-    const bool fromUp = upstreamCli.remoteIP() == UPSTREAM && upstreamCli.remotePort() == UPSTREAM_PORT;
+    const bool fromUp = upstreamCli.remoteIP() == upstreamDns && upstreamCli.remotePort() == UPSTREAM_PORT;
     int n = upstreamCli.read(buf, sizeof(buf));
     upstreamCli.flush();                                 // oversized datagram can't strand rx_buffer
     if (!fromUp || n < 12 || sz > (int)sizeof(buf)) continue;
@@ -304,6 +330,7 @@ static void handleStats() {
   String j = "{\"ip\":\"" + WiFi.localIP().toString() + "\",\"blocked\":" + totalBlocked + ",\"allowed\":" + totalAllowed +
              ",\"domains\":" + numHashes + ",\"rssi\":" + WiFi.RSSI() + ",\"temp\":" + String(temperatureRead(), 1) +
              ",\"heap\":" + ESP.getFreeHeap() + ",\"uptime\":\"" + ut + "\"" +
+             ",\"dns\":\"" + upstreamDns.toString() + "\",\"dnsCustom\":" + (upstreamCustom ? "true" : "false") +
              ",\"upurl\":\"" + jesc(updateUrl) + "\",\"upiv\":" + updateIntervalH + ",\"upstat\":\"" + jesc(updateStatus) + "\"" +
              ",\"blocking\":" + (blockingOn ? "true" : "false") +
              ",\"resumeIn\":" + (uint32_t)(!blockingOn && resumeAt ? (resumeAt - millis()) / 1000 : 0) +
@@ -559,7 +586,7 @@ void setup() {
     Serial.printf("blocklist: %u domains\n", numHashes);
     buildFlashIndex();
   }
-  loadCustom(); loadBanned(); loadUpdateCfg();
+  loadCustom(); loadBanned(); loadUpdateCfg(); upstreamLoad();
   Serial.printf("custom: %d, banned: %d\n", numCustom, numBanned);
 
   // Hold BOOT at power-on to wipe saved WiFi and force the setup portal.
@@ -583,6 +610,9 @@ void setup() {
   if (!connectWiFi()) startConfigPortal();   // portal blocks + reboots on save; returns only when connected
   Serial.printf("WiFi up: %s\n", WiFi.localIP().toString().c_str());
   screen_online(WiFi.localIP().toString().c_str());
+  if (!upstreamCustom) upstreamUseGateway();  // DHCP is up: adopt the router as upstream
+  Serial.printf("upstream DNS: %s (%s)\n", upstreamDns.toString().c_str(),
+                upstreamCustom ? "set on the dashboard" : "gateway");
   if (MDNS.begin("c3adblock")) { MDNS.addService("http", "tcp", 80); Serial.println("dashboard: http://c3adblock.local"); }
 
   if (strcmp(WEB_PASS, "CHANGE_ME_WEB_PASSWORD") == 0 || strcmp(OTA_PASS, "CHANGE_ME_OTA_PASSWORD") == 0)
@@ -614,6 +644,24 @@ void setup() {
     if (web.hasArg("u")) updateUrl = web.arg("u");
     if (web.hasArg("h")) { updateIntervalH = web.arg("h").toInt(); if (updateIntervalH < 1) updateIntervalH = 1; }
     saveUpdateCfg(); web.send(200, "text/plain", "ok");
+  });
+  web.on("/setdns", []() {               // /setdns?ip=x.x.x.x  or  /setdns?gw=1
+    if (!requireAuth()) return;
+    const String ip = web.arg("ip");
+    if (web.hasArg("gw") || !ip.length()) {
+      upstreamCustom = false;
+      LittleFS.remove("/upstream.cfg");
+      upstreamUseGateway();
+    } else {
+      IPAddress v;
+      if (!v.fromString(ip)) { web.send(400, "text/plain", "not an IPv4 address"); return; }
+      upstreamDns = v;
+      upstreamCustom = true;
+      upstreamSave();
+    }
+    Serial.printf("[dns] upstream -> %s (%s)\n", upstreamDns.toString().c_str(),
+                  upstreamCustom ? "set on the dashboard" : "gateway");
+    web.send(200, "text/plain", upstreamDns.toString());
   });
   web.begin();
   ArduinoOTA.setHostname("c3adblock");   // pio run -t upload --upload-port c3adblock.local

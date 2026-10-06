@@ -212,13 +212,22 @@ static bool anyKeyPressed(void) {
     return analogReadMilliVolts(KEY_ADC_PIN) < KEY_PRESSED_MV;
 }
 
-// Blank the panel after the idle timeout and repaint the current page on wake.
+// Blank the panel after the idle timeout. Only the backlight goes away, so the
+// picture on the glass is still there when the user presses a key.
 static void screenSetOn(bool on) {
     if (on == s_on) return;
     s_on = on;
     s_active_ms = millis();
     lcd_power(on);
-    if (on) draw();   // GRAM survives display-off, but a repaint is cheap and safe
+    if (on) {
+        // The panel kept its picture; just bring the counters up to date.
+        uint32_t t0 = millis();
+        uint32_t to = lcd_wait_timeouts();
+        paint_stats(true);
+        Serial.printf("[screen] wake: stats repaint %lu ms (wait timeouts %lu)\n",
+                      (unsigned long)(millis() - t0),
+                      (unsigned long)(lcd_wait_timeouts() - to));
+    }
 }
 
 static void show(ScreenState state, const char *a, const char *b) {

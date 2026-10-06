@@ -15,7 +15,8 @@
 void lcd_init(void);
 bool lcd_ready(void);
 void lcd_backlight(uint8_t percent);           // 0..100
-void lcd_power(bool on);                       // backlight + panel display
+void lcd_power(bool on);                       // backlight only; the panel keeps its picture
+uint32_t lcd_wait_timeouts(void);              // colour transfers that needed the 200 ms guard
 void lcd_fill(uint16_t color);
 void lcd_fill_rect(int x, int y, int w, int h, uint16_t color);
 void lcd_text(int x, int y, const char *s, uint8_t scale, uint16_t fg, uint16_t bg);

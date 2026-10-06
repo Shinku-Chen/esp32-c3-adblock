@@ -49,6 +49,7 @@ static esp_lcd_panel_io_handle_t s_io;
 static uint16_t                 *s_buf;      // DMA-capable scratch strip
 static bool                      s_ready;
 static bool                      s_bl_ready;
+static uint32_t                  s_wait_timeouts;   // diagnostics for the wake log
 static SemaphoreHandle_t         s_lcd_idle; // set when a colour transfer finishes
 
 // Colour data is queued asynchronously (DMA + interrupt), so the scratch strip
@@ -63,8 +64,10 @@ static void wait_idle(void) {
     if (!s_lcd_idle) return;
     // The timeout only guards against an error path that never fires the
     // callback; a healthy transfer takes well under a millisecond.
-    xSemaphoreTake(s_lcd_idle, pdMS_TO_TICKS(200));
+    if (xSemaphoreTake(s_lcd_idle, pdMS_TO_TICKS(200)) != pdTRUE) s_wait_timeouts++;
 }
+
+uint32_t lcd_wait_timeouts(void) { return s_wait_timeouts; }
 
 static inline uint16_t be16(uint16_t c) { return (uint16_t)((c >> 8) | (c << 8)); }
 
@@ -192,16 +195,11 @@ void lcd_backlight(uint8_t percent) {
     ledc_update_duty(AI_BL_LEDC_MODE, AI_BL_LEDC_CHANNEL);
 }
 
-// Blank the whole panel for idle; the caller repaints after waking it up.
+// Blank the panel for idle. Only the backlight is cut: the panel keeps its
+// picture, so waking is instant and needs no full repaint.
 void lcd_power(bool on) {
     if (!s_ready) return;
-    if (on) {
-        esp_lcd_panel_disp_on_off(s_panel, true);
-        lcd_backlight(70);
-    } else {
-        lcd_backlight(0);
-        esp_lcd_panel_disp_on_off(s_panel, false);
-    }
+    lcd_backlight(on ? 70 : 0);
 }
 
 static void push(int x, int y, int w, int h) {

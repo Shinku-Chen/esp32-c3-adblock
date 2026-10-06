@@ -227,11 +227,27 @@ static Dev* getClient(uint32_t ip) {
 }
 
 // ---------- upstream resolver ----------
-// Allowed lookups are forwarded here. Default: the DHCP gateway (the router's
-// own resolver), overridable from the dashboard and persisted on the device.
+// Allowed lookups are forwarded here. Default: the DNS the router handed out
+// over DHCP, unless that is this device's own address (forwarding to ourselves
+// would loop) or missing - then the gateway, then the built-in fallback.
+// The dashboard can override it; that choice wins and is persisted.
+static const char *upstreamSource = "gateway";
 static void upstreamUseGateway() {
-  IPAddress gw = WiFi.gatewayIP();
-  upstreamDns = (gw != IPAddress(0, 0, 0, 0)) ? gw : UPSTREAM;
+  const IPAddress self = WiFi.localIP();
+  const IPAddress dhcp = WiFi.dnsIP();
+  if ((uint32_t)dhcp != 0 && dhcp != self) {
+    upstreamDns = dhcp;
+    upstreamSource = "dhcp";
+    return;
+  }
+  const IPAddress gw = WiFi.gatewayIP();
+  if ((uint32_t)gw != 0 && gw != self) {
+    upstreamDns = gw;
+    upstreamSource = "gateway";
+  } else {
+    upstreamDns = UPSTREAM;
+    upstreamSource = "built-in";
+  }
 }
 static void upstreamLoad() {
   File f = LittleFS.open("/upstream.cfg", "r");
@@ -331,6 +347,7 @@ static void handleStats() {
              ",\"domains\":" + numHashes + ",\"rssi\":" + WiFi.RSSI() + ",\"temp\":" + String(temperatureRead(), 1) +
              ",\"heap\":" + ESP.getFreeHeap() + ",\"uptime\":\"" + ut + "\"" +
              ",\"dns\":\"" + upstreamDns.toString() + "\",\"dnsCustom\":" + (upstreamCustom ? "true" : "false") +
+             ",\"dnsSource\":\"" + (upstreamCustom ? "custom" : upstreamSource) + "\"" +
              ",\"upurl\":\"" + jesc(updateUrl) + "\",\"upiv\":" + updateIntervalH + ",\"upstat\":\"" + jesc(updateStatus) + "\"" +
              ",\"blocking\":" + (blockingOn ? "true" : "false") +
              ",\"resumeIn\":" + (uint32_t)(!blockingOn && resumeAt ? (resumeAt - millis()) / 1000 : 0) +
@@ -610,9 +627,9 @@ void setup() {
   if (!connectWiFi()) startConfigPortal();   // portal blocks + reboots on save; returns only when connected
   Serial.printf("WiFi up: %s\n", WiFi.localIP().toString().c_str());
   screen_online(WiFi.localIP().toString().c_str());
-  if (!upstreamCustom) upstreamUseGateway();  // DHCP is up: adopt the router as upstream
+  if (!upstreamCustom) upstreamUseGateway();  // DHCP is up: pick the default resolver
   Serial.printf("upstream DNS: %s (%s)\n", upstreamDns.toString().c_str(),
-                upstreamCustom ? "set on the dashboard" : "gateway");
+                upstreamCustom ? "set on the dashboard" : upstreamSource);
   if (MDNS.begin("c3adblock")) { MDNS.addService("http", "tcp", 80); Serial.println("dashboard: http://c3adblock.local"); }
 
   if (strcmp(WEB_PASS, "CHANGE_ME_WEB_PASSWORD") == 0 || strcmp(OTA_PASS, "CHANGE_ME_OTA_PASSWORD") == 0)
@@ -655,12 +672,13 @@ void setup() {
     } else {
       IPAddress v;
       if (!v.fromString(ip)) { web.send(400, "text/plain", "not an IPv4 address"); return; }
+      if (v == WiFi.localIP()) { web.send(400, "text/plain", "that is this device; pick another resolver"); return; }
       upstreamDns = v;
       upstreamCustom = true;
       upstreamSave();
     }
     Serial.printf("[dns] upstream -> %s (%s)\n", upstreamDns.toString().c_str(),
-                  upstreamCustom ? "set on the dashboard" : "gateway");
+                  upstreamCustom ? "set on the dashboard" : upstreamSource);
     web.send(200, "text/plain", upstreamDns.toString());
   });
   web.begin();

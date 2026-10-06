@@ -93,7 +93,7 @@ static void draw(void) {
             lcd_text(centerX("ONLINE", 2), 56, "ONLINE", 2, C_GREEN, C_BG);
             lcd_text(centerX("open the dashboard", 1), 104, "open the dashboard", 1, C_DIM, C_BG);
             lcd_text(centerX("c3adblock.local", 2), 116, "c3adblock.local", 2, C_TEXT, C_BG);
-            lcd_text(centerX("or", 1), 156, "or", 1, C_DIM, C_BG);
+            lcd_text(centerX("IP address", 1), 156, "IP address", 1, C_DIM, C_BG);
             clip(ip, 14);
             lcd_text(centerX(ip, 2), 168, ip, 2, C_WHITE, C_BG);
             lcd_text(10, 212, "Stats, pause and blocklist", 1, C_DIM, C_BG);
